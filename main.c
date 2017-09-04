@@ -24,7 +24,7 @@ typedef struct trans{
 	char tipo;       // retiro,deposito, transferencia (r,d,t)
 	char medio;	// efectivo o cuenta (e,c)
 	char origen[14]; // cuenta origen
-	char destino[15]; // cuenta destino
+	char destino[14]; // cuenta destino
 	int monto;
 	
 	
@@ -53,9 +53,6 @@ trans* create_trans(char tipo, char medio, char origen[14], char destino[14], in
 }
 
 
-void dump(int tipo, int sucID){
-	return;
-}
 
 
 void push_trans(char tipo, char medio, char origen[14], char destino[14], int monto, int result,trans* header){
@@ -82,25 +79,7 @@ typedef struct cuenta{
 	char id[14];
 }cuenta;
 
-void dump_accs(int sucID, cuenta* header){
-	char fn[17];
-	sprintf(fn,"dump_accs_%d.csv",sucID);
-	FILE* f=fopen(fn,"w+");
-	cuenta* temp=header;
-	fprintf(f,"'ID','saldo'\n");
 
-	while(temp!=NULL){
-		fprintf(f,"%s,%d\n",temp->id,temp->monto);
-		
-		temp=temp->next;
-			
-
-		}
-	
-
-
-	fclose(f);	
-}
 
 
 
@@ -153,7 +132,7 @@ void print_suc(suc* header, int n){
 	
 	suc* temp=header;
 	while(temp!=NULL){
-		printf("ID: %d\n",(int)temp->id);
+		printf("ID: %d\n, Rango de cuentas: 1-%d",(int)temp->id,temp->cuentas);
 		temp=temp->next;		
 		}
 	return;
@@ -228,15 +207,6 @@ cuenta* create_cuenta(int* counter, int suc, int bank){  //retorna el header* de
 
 }
 
-
-
-int validar_cuenta(){
-	
-
-}
-
-
-
 int retiro(int monto, char* id_cuenta, cuenta* header){ // retorna 2 si el monto es invalido
 	cuenta* temp=header;
 	while(temp!=NULL){
@@ -294,6 +264,41 @@ int deposito(int monto,char* id_cuenta,cuenta* header){             //retorna 0 
 
 
 
+
+
+void delete_suc(int id, suc* h_suc){      //deberia decrementar el contador num_suc de main
+	if(((h_suc->id)%1000)==id){
+		suc* to_delete=h_suc;
+		h_suc=h_suc->next;
+		free(to_delete);
+		return;
+		}
+	else{
+		suc* temp_suc=h_suc;
+		while(temp_suc->next!=NULL){
+		
+				if(((temp_suc->next->id)%1000)==id){
+					suc* to_delete=temp_suc->next;
+					
+					temp_suc->next=h_suc->next->next;
+					
+					free(to_delete);
+					return;
+					}
+				else{
+				
+					
+					temp_suc=temp_suc->next;
+					
+					}
+		
+		
+			}
+	
+	}
+}
+
+
 typedef struct args{
 	int pipe;   //pipe desde donde la sucursal escucha al banco
 	cuenta* h_cuentas;		//h. de cuentas de la suc
@@ -301,6 +306,85 @@ typedef struct args{
 	
 	
 }args;
+int sucId;
+
+void dump_errs(trans* header){
+
+	char fn[17];
+	sprintf(fn,"dump_errs_%d.csv",sucId);
+	FILE* f=fopen(fn,"w+");
+	fprintf(f,"tipo_e,cuenta,monto\n");
+	trans* temp=header;
+	while(temp!=NULL){
+		if(temp->result!=0){
+			
+			fprintf(f,"%c,%s,%d",temp->tipo,temp->destino,temp->monto);
+		
+		}
+		temp=temp->next;
+	
+	
+	}
+	fclose(f);
+
+
+
+
+
+}
+
+void dump_accs(int sucID, cuenta* header){
+	char fn[17];
+	sprintf(fn,"dump_accs_%d.csv",sucID);
+	FILE* f=fopen(fn,"w+");
+	cuenta* temp=header;
+	fprintf(f,"'ID','saldo'\n");
+
+	while(temp!=NULL){
+		fprintf(f,"%s,%d\n",temp->id,temp->monto);
+		
+		temp=temp->next;
+			
+
+		}
+	
+
+
+	fclose(f);	
+}
+
+void dump(trans* h_trans){    //FALTA ARREGLAR LA FORMA EN QUE SE INICIALIZA LA LISTA LIGADA DE TRANSACCIONES
+	trans* temp=h_trans;
+	temp=temp->next; /// ESTA MAL INICIALIZADA.. POR ESO PARTIMOS DE LA SEGUNDA
+	//creamos el archivo
+	char fname[12];
+	sprintf(fname,"dump_%d.txt",sucId);
+	FILE* f=fopen(fname,"w+");
+	
+	
+	fprintf(f,"tipo,medio,origen,destino\n");
+	if(f==NULL){
+		fprintf(stderr,"no se pudo abrir el archivo");
+		exit(1);
+		}
+		
+		
+		
+	while(temp!=NULL){
+		if(temp->result==0){
+		
+			fprintf(f,"%c, %c, %s, %s\n",temp->tipo,temp->medio,temp->origen,temp->destino);
+					
+		}
+		temp=temp->next;
+	
+	
+	}
+	fclose(f);
+	
+	return;
+		}
+		
 
 
 void* escuchar(void* argumento){  //recibira un struct args*
@@ -311,7 +395,6 @@ void* escuchar(void* argumento){  //recibira un struct args*
 	int pipe=argumentos->pipe;
 	cuenta* h_cuentas=argumentos->h_cuentas;
 	trans* h_trans=argumentos->h_trans;
-	
 	//ponemos el thread a escuchar a la matriz
 	int bytes;
 	char readbuffer[80];
@@ -319,7 +402,6 @@ void* escuchar(void* argumento){  //recibira un struct args*
 	while(true){
 	
 		bytes = read(pipe, readbuffer, sizeof(readbuffer));
-       		
 		printf("Soy la sucursal me llego mensaje '%s' de '%d' bytes.\n",
        		readbuffer,bytes);
        		if(!strncmp("kill", readbuffer, strlen("kill"))){
@@ -328,12 +410,32 @@ void* escuchar(void* argumento){  //recibira un struct args*
        				
        				}
 	
+		
+		else if(!strncmp("dump_accs", readbuffer, strlen("dump_accs"))){
+			dump_accs(sucId,h_cuentas);
+		
+		
+		}
+		
+		else if(!strncmp("dump_errs", readbuffer, strlen("dump_errs"))){
+		
+			dump_errs(h_trans);
+		
+		
 		}
 		
 		
 		
+		else if(!strncmp("dump", readbuffer, strlen("dump"))){
+			dump(h_trans);
+		
+		
+		}
+		
+			
+		
 
-	
+	}
 		return NULL;
 	
 	
@@ -341,6 +443,45 @@ void* escuchar(void* argumento){  //recibira un struct args*
 
 
 	}
+	
+	
+suc* buscar_suc(int id, suc* h_suc){
+	suc* temp=h_suc;
+	while(temp!=NULL)
+	{
+		if(((temp->id)%1000)==id)
+		{
+			return temp;
+			
+			
+		}
+		else
+		{
+		
+			temp=temp->next;
+		}
+	
+	
+	}
+	
+	if(temp==NULL){
+	
+		return NULL;
+	
+	
+	
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+
+	}
+
 
 int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO USADAS POR LOS RESPECTIVOS PROCESOS;
   srand(time(NULL));
@@ -355,7 +496,7 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
   // Se crea un pipe...
   
   int suc_num=0;
-  suc* header_suc;
+  suc* header_suc=NULL;
   const int bankId = getpid() % 1000;
   printf("Bienvenido a Banco '%d'\n", bankId);	
 //	int status=system("gnome-terminal");
@@ -373,11 +514,24 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
     printf("Comando ingresado: '%s'\n", commandBuf);
 
     if (!strncmp("quit", commandBuf, strlen("quit"))) {        	//QUIT
+    
+    	suc* temp;
+    	char msg[]="kill";
+    	while(header_suc!=NULL){
+    		temp=header_suc;
+    		header_suc=header_suc->next;
+    		write(temp->pipe[1],msg,strlen(msg)+1);
+    		wait(NULL);
+    		printf("\nHIJO MUERTO\n");
+    		suc_num-=1;
+    	
+    		}
         break;
+        
     }
 	
 
-    if (!strncmp("kill", commandBuf, strlen("kill"))) {        	//KILL
+    else if (!strncmp("kill", commandBuf, strlen("kill"))) {        	//KILL
     //    kill(1,SIGKILL);
     
         int id_suc=atoi((char*)(commandBuf+4));
@@ -387,8 +541,16 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
         	while(temp!=NULL){
         		if(((temp->id)%1000)==id_suc){
         			printf("notificando a la suc para que se mate");
-        		
+        			
         			write(temp->pipe[1],msg,strlen(msg)+1);
+        			int status=wait(NULL);
+        			printf("\n............Status= %d\n",status);
+        			
+        			
+       				
+        			
+        			delete_suc(id_suc,header_suc);
+        			suc_num-=1;
         			//FALtA ELIMINAR LA SUCURSAL DE LA LISTA LIGA LIGADA
         			break;
         	
@@ -411,8 +573,63 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
         printf("LIST:");
  	print_suc(header_suc,suc_num);
     }
+    
+    else if (!strncmp("dump_errs", commandBuf, strlen("dump_errs"))) {			//DUMP
+        int suc_dump=atoi((char*)(commandBuf+10));
+    	char msg[]="dump_errs";
+    	suc* temp=buscar_suc(suc_dump,header_suc);
+    	if(temp==NULL){
+    		printf("Sucursal no encontrada\n");
+    	
+    		}
+    	else{
+    		write(temp->pipe[1],msg,strlen(msg)+1);
+    	
+    	
+    		}
+        
+        
+    }
+    
+    else if (!strncmp("dump_accs", commandBuf, strlen("dump_acss"))) {			//DUMP
+        int suc_dump=atoi((char*)(commandBuf+10));
+    	char msg[]="dump_accs";
+    	suc* temp=buscar_suc(suc_dump,header_suc);
+    	if(temp==NULL){
+    		printf("Sucursal no encontrada\n");
+    	
+    		}
+    	else{
+    		write(temp->pipe[1],msg,strlen(msg)+1);
+    	
+    	
+    		}
+        
+        
+    }
 
-
+    
+    else if (!strncmp("dump", commandBuf, strlen("dump"))) {			//DUMP.. busca
+    	
+    	int suc_dump=atoi((char*)(commandBuf+4));
+    	char msg[]="dump";
+    	suc* temp=buscar_suc(suc_dump,header_suc);
+    	if(temp==NULL){
+    		printf("Sucursal no encontrada\n");
+    	
+    		}
+    	else{
+    		write(temp->pipe[1],msg,strlen(msg)+1);
+    	
+    	
+    		}
+    	
+    	
+        
+        
+    }
+    
+    
 
 	
 
@@ -475,7 +692,7 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 		
 	
 
-        int sucId = getpid() % 1000;
+        sucId = getpid() % 1000;
 	
         printf("Hola, soy la sucursal '%d'\n", sucId);
         
@@ -549,20 +766,8 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 	
 		
 
-
-
-
-
-         
+        
 //	usleep(20000000);
-	
-	
-	
-	
-	
-	
-	
-	
 
           // Usar usleep para dormir una cantidad de microsegundos
           usleep(2000000);
