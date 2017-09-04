@@ -46,7 +46,7 @@ trans* create_trans(char tipo, char medio, char origen[14], char destino[14], in
 	tr->result=result;
 	tr->next=NULL;
 
-	printf("Se ha creado la trans: tipo: %c, medio %c, origen: %s, destino: %s, monto: %d, result:%d\n",tipo,medio,origen,destino,monto,result);
+	
 	return tr;
 
 
@@ -101,7 +101,8 @@ suc* create_suc(pid_t suc_id, int cuentas, int pipe[2]){
 	suc* sucur=malloc(sizeof(suc));
 	if (sucur==NULL){
 
-			printf("ERRO DE MALLOC AL CREAR SUCURSAL\n");
+			fprintf(stderr,"ERRO DE MALLOC AL CREAR SUCURSAL\n");
+			exit(1);
 
 
 			}
@@ -171,7 +172,7 @@ int get_id_cuenta(char* id_cuenta){    // Recibe id BBB-SSS-CCC y retorna CCC
 
 cuenta* create_cuenta(int* counter, int suc, int bank){  //retorna el header* de la lista
 
-	printf("CREANDO una cuenta...\n");
+	
 	cuenta* header=malloc(sizeof(cuenta));
 	
 	if (header==NULL){
@@ -182,13 +183,14 @@ cuenta* create_cuenta(int* counter, int suc, int bank){  //retorna el header* de
 	header->monto=random;
 	char id[14];
 	if(id==NULL){
-		printf("fallo de malloc en crear cuenta\n");	}
+		fprintf(stderr,"fallo de malloc en crear cuenta\n");
+		exit(1);	}
 	
 	sprintf(id, "%03d-%03d-%06d",bank, suc,*counter);
 	strcpy(header->id,id);
 	
 	header->next=NULL;
-	printf("Se ha creado la cuenta");
+	
 	return header;
 	
 
@@ -213,8 +215,6 @@ int retiro(int monto, char* id_cuenta, cuenta* header){ // retorna 2 si el monto
 		if(get_id_cuenta(temp->id)==get_id_cuenta(id_cuenta)){
 			if(temp->monto>=monto && monto>0){
 					temp->monto-=monto;
-					printf("SALDO: %d.... retiro: %d",temp->monto,monto);
-					printf("RETIRO EXITOSO");
 					
 					return 0;
 
@@ -222,7 +222,6 @@ int retiro(int monto, char* id_cuenta, cuenta* header){ // retorna 2 si el monto
 
 			else{
 				
-				printf("MONTO INVALIDO");
 				return 2;
 				}
 
@@ -233,7 +232,7 @@ int retiro(int monto, char* id_cuenta, cuenta* header){ // retorna 2 si el monto
 				}				
 
 		}
-	printf("CUENTA INVALIDA");
+	
 
 	return 1;
 
@@ -245,7 +244,7 @@ int deposito(int monto,char* id_cuenta,cuenta* header){             //retorna 0 
 		
 		if(get_id_cuenta(temp->id)==get_id_cuenta(id_cuenta)){
 			temp->monto+=monto;
-			printf("Se han depositado %d a la cuenta %s, ahora su monto es %d\n",monto,id_cuenta,temp->monto);
+			
 			return 0;
 		
 			
@@ -253,7 +252,7 @@ int deposito(int monto,char* id_cuenta,cuenta* header){             //retorna 0 
 		else temp=temp->next;
 
 	}
-	printf("ERROR AL DEPOSITAR A: %s",id_cuenta);
+
 	return 1;
 	
 }
@@ -727,7 +726,6 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 	int transaccion=rand()%3+1;
 	int r_trans;
 	int monto=rand()%500000000+1;
-	printf("\nCUENTA RANDOM: %s\n",cuenta_random);
 
 	if(transaccion==1){	//DEPOSITO
 		r_trans=deposito(monto,cuenta_random,header);
