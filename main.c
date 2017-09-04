@@ -133,7 +133,7 @@ void print_suc(suc* header, int n){
 	
 	suc* temp=header;
 	while(temp!=NULL){
-		printf("ID: %d\n, Rango de cuentas: 1-%d",(int)temp->id,temp->cuentas);
+		printf("ID: %d, Rango de cuentas: 1-%d\n",(int)temp->id,temp->cuentas);
 		temp=temp->next;		
 		}
 	return;
