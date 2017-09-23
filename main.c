@@ -25,8 +25,8 @@ typedef struct trans{
 
 	char tipo;       // retiro,deposito, transferencia (r,d,t)
 	char medio;	// efectivo o cuenta (e,c)
-	char origen[14]; // cuenta origen
-	char destino[14]; // cuenta destino
+	char origen[15]; // cuenta origen
+	char destino[15]; // cuenta destino
 	int monto;
 	
 	
@@ -43,8 +43,10 @@ trans* create_trans(char tipo, char medio, char origen[14], char destino[14], in
 		exit(1);}
 	tr->tipo=tipo;
 	tr->medio=medio;
+	
 	strcpy(tr->origen,origen);
 	strcpy(tr->destino,destino);
+	
 	tr->monto=monto;
 	tr->result=result;
 	tr->next=NULL;
@@ -58,21 +60,7 @@ trans* create_trans(char tipo, char medio, char origen[14], char destino[14], in
 
 
 
-void push_trans(char tipo, char medio, char origen[14], char destino[14], int monto, int result,trans* header){
-
-	trans* temp=header;
-	while(temp->next!=NULL){
-		
-		temp=temp->next;
-
-		}
-
-	temp->next=create_trans(tipo,medio,origen,destino,monto, result);
-
-	
-
-	}
-	
+void push_trans(char tipo, char medio, char origen[14], char destino[14], int monto, int result,trans* header);
 
 
 
@@ -308,48 +296,9 @@ typedef struct matrix_arg{
 
 
 
-void* matrix(void* arg){ //args debe ser un struct que contenga suc_h,bankPipe
+void* matrix(void* arg);
 
-//	suc* suc_h=((matrix_arg*)arg)->suc_h;
-	int sucPipe=((matrix_arg*)arg)->sucPipe;
-	char readbuffer[80];
-	while(true){
-		int bytes=read(sucPipe,readbuffer,sizeof(readbuffer));
-		if(bytes==-1){
-			fprintf(stderr,"error al leer mensaje desde Pipe: %s\n",strerror(errno));
-			exit(1);
-	
-		}
-	
-		char* msg_array[4];  //mensaje de la forma '<emisor>;<solicitud/respuesta>;<monto>;<cuenta_destino>;<cuenta_inicial>'
-					// a traves de cuenta_destino se verifica la existencia del banco y de la cuenta en el mismo,
-	
-		char* token;
-		token=strtok(readbuffer,";");
-		
-		int i=0;
-		while(token!=NULL){
-			msg_array[i]=malloc((sizeof(char))*(strlen(token)+1));
-		
-			strcpy(msg_array[i],token);
-			msg_array[strlen(token)]='\0';
-			token=strtok(NULL," ");
-			i+=1;
-	
-		}
-	
-	}	
-	
-	
 
-	free(arg);
-	return;
-	
-	
-	
-	
-
-}
 
 typedef struct accs_lock{  // objeto que contiene lock general para leer o escribir en la lista ligada de cuentas
 
@@ -365,17 +314,10 @@ void dump_errs(trans* header);
 void dump_accs(cuenta* header);
 int retiro(int monto, char id_cuenta[14], cuenta* header);
 int deposito(int monto,char* id_cuenta,cuenta* header);
-void acq_acc_rlock();
-void acq_acc_wlock();
-void rls_acc_rlock();
-void rls_acc_wlock();
-void acq_sucs_rlock();
-void rls_sucs_rlock();
 
 
 
 //VARIABLES GLOBALES
-
 sem_t rand_lock;
 sem_t trans_lock;  //
 sem_t sucs_lock;   // semaforos parra escritura y lectura de las trans y sucs
@@ -384,7 +326,8 @@ sem_t sucs_rdrlock; //lock para la variaable int sucs_rdr
 accs_lock accounts_lock;
 int bankId;
 int sucId;
-
+int sucPipe[2];
+suc* suc_h;
 int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO USADAS POR LOS RESPECTIVOS PROCESOS;
   
   //inicializamos los lock
@@ -407,7 +350,7 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
   
 
   
-  suc* suc_h=NULL;
+  suc_h=NULL;
   bankId = getpid() % 1000;
   printf("Bienvenido a Banco '%d'\n", bankId);	
 
@@ -415,8 +358,8 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 	
  char readbuffer[80]; // buffer para lectura desde pipe
 
-  // se crea este unico pipe desde donde TODAS las sucursales  
-  int sucPipe[2];
+  // se crea este unico pipe desde donde TODAS las sucursales le escriben a la matriz
+  
   pipe(sucPipe);
   
 
@@ -578,11 +521,26 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
       // pueden iniciarse procesos sin control.
       // Buscar en Google "fork bomb"
 	
+	char* token;
+	int cuentas=0;
+	int threads=0;
+	char esp[]=" ";
+	token=strtok((commandBuf+4),esp);
+	int k=1; 
+	while(token!=NULL){
+		if(k==1) cuentas=atoi(token);
+		
+		else if(k==2) threads=atoi(token);
+		
+		token=strtok(NULL,esp);
+		k+=1;
 	
-	  
-  	int cuentas=atoi((char*)(commandBuf+4));
-  	if(cuentas==0)  cuentas=1000;
-  	
+	}
+
+  	if(cuentas<1000)  cuentas=1000;
+  	if(threads<=0) threads=1;
+  	else if(threads>=9) threads=8;
+  	printf("Cuentas: %d, threads: %d",cuentas,threads);
   	
   	int bankPipe[2]; 
 	pipe(bankPipe);
@@ -661,7 +619,7 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
  	trans* trans_h=create_trans('r','e',"ORIGEN","DESTINO",0,0);
 	
 	
-	//inicializamos el thread que se encaraga de escuchar a la matriz
+	
 	args* argumentos=malloc(sizeof(args));
 	if(argumentos==NULL){
 	
@@ -672,9 +630,14 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 	argumentos->acc_h=acc_h;
 	argumentos->trans_h=trans_h;
 	
-	pthread_t* t1=malloc(sizeof(pthread_t));
+	pthread_t* T=malloc(sizeof(pthread_t)*threads);
+	int t=0;
+	while(t<threads){
+		pthread_create((T+t),NULL,suc_thread,argumentos);
+		t+=1;
+	}
 	
-	pthread_create(t1,NULL,suc_thread,argumentos);
+	
 	
         while (true) {
           // 100 milisegundos...
@@ -723,40 +686,51 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 		}
 		
 		
-		else if(!strncmp("solicitud",readbuffer,strlen("solicitud"))){
+		else{
+			
 		
 		
-		
-			char solicitud[10];  
-			int monto;
-			char cuenta[14];
-		
+			char* msg_array[6]; //"<suc_emisor>;<solicitud/r:0/r:1/r:2>;<retiro/dep>;<monto>;<cuenta_des>;<cuenta_inicial>"
 			char* token;
-			token=strtok((readbuffer+10)," ");
-			strcpy(solicitud,token);
-			int k=0;
+			char del[]=";";
+			token=strtok(readbuffer,del);
+			int i=0;
 			while(token!=NULL){
-				if(k==0){
-				
-					strcpy(solicitud,token);
-				}
-				
-				
-				else if(k==1){
-				        monto=atoi(token);
-				
-				}
-				else{
-				
-				
-					strcpy(cuenta,token);
-				}
-				k+=1;
-				token=strtok(NULL," ");
+			
+			
+			
+				msg_array[i]=token;
+				printf("%s\n",msg_array[i]);
+			
+				token=strtok(NULL,del);
+				i+=1;
+	
 			}
-		
-			printf("se solicita: %s %d %s\n",solicitud,monto,cuenta);
-		//ordenamos lo recibido para operar la solicitud
+			
+			printf("se va a comparar si suc_emisor(%d)==mi_id(%d) o ==deposito\n",atoi(msg_array[0]),sucId);
+			if((atoi(msg_array[0]))==sucId ){
+	//			char res=msg_array[1][2];
+	//			int resp=res-'0';
+				printf("es una respuesta para mi\n"); //char tipo, char medio, char origen[14], char destino[14], int monto, int result,trans* header
+	//			printf("tipo: %c\n",msg_array[2][0]);
+	///			
+	//			printf("dest: %s\n",msg_array[4]);
+	//			
+	//			printf("monto: %d\n",atoi(msg_array[3]));
+				
+	//			printf("resp: %d\n",resp);
+	//			push_trans(msg_array[2][0],'e',msg_array[5],msg_array[4],atoi(msg_array[3]),resp,trans_h);
+				//adquirir lock de escritura para push_trans y registrar el resultado
+				
+				
+			}
+			else{
+				printf("es una solicitud para mi\n");
+				//adquirir lock de cuentas para hacer deposito/retiro y responder a la matriz
+			}
+			
+			
+			
 		
 		
 			
@@ -773,14 +747,6 @@ int main(int argc, char** argv) { ////NO SE HAN CERRADO LAS SALIDAS DE PIPE NO U
 		
 		
 		
-		else if(!strncmp("respuesta",readbuffer,strlen("respuesta"))){
-		
-		
-		
-		
-		
-		
-		}
 		
 
 
@@ -894,12 +860,13 @@ void dump_accs(cuenta* header){
 	sprintf(fn,"dump_accs_%d.csv",sucId);
 	FILE* f=fopen(fn,"w+");
 	cuenta* temp=header;
-	acq_acc_rlock();
+	
 	fprintf(f,"'ID','saldo'\n");
 
 	while(temp!=NULL){
+		sem_wait(&temp->lock);
 		fprintf(f,"%s,%d\n",temp->id,temp->monto);
-		
+		sem_post(&temp->lock);
 		temp=temp->next;
 			
 
@@ -907,19 +874,20 @@ void dump_accs(cuenta* header){
 	
 	
 	fclose(f);	
-	rls_acc_rlock();
 }
 
 
 int retiro(int monto, char id_cuenta[14], cuenta* header){ // retorna 0 si es exitoso,1 cuenta invalida, 2 monto invalido
 	cuenta* temp=header;
-	acq_acc_wlock();
+	
 	while(temp!=NULL){
-		if(temp->id==id_cuenta){
+	
+		if(strcmp(temp->id,id_cuenta)==0){
+		
 			sem_wait(&temp->lock);
 			if(temp->monto>=monto && monto>0){
 					temp->monto-=monto;
-					rls_acc_wlock();
+					
 					sem_post(&temp->lock);
 					return 0;
 
@@ -927,9 +895,12 @@ int retiro(int monto, char id_cuenta[14], cuenta* header){ // retorna 0 si es ex
 
 			else{
 				sem_post(&temp->lock);
-				rls_acc_wlock();
+	
 				return 2;
 				}
+
+
+
 
 			}
 			
@@ -940,7 +911,6 @@ int retiro(int monto, char id_cuenta[14], cuenta* header){ // retorna 0 si es ex
 
 		}
 	
-	rls_acc_wlock();
 	return 1;
 
 }
@@ -949,7 +919,8 @@ int deposito(int monto,char* id_cuenta,cuenta* header){             //retorna 0 
 	cuenta* temp=header;
 	while(temp!=NULL){
 		
-		if(temp->id==id_cuenta){
+		if(strcmp(temp->id,id_cuenta)==0){
+			
 			sem_wait(&temp->lock);
 			temp->monto+=monto;
 			sem_post(&temp->lock);
@@ -965,75 +936,6 @@ int deposito(int monto,char* id_cuenta,cuenta* header){             //retorna 0 
 	
 }
 
-
-//metodos para sincronizar las intervenciones sobre la estructura de datos de las accounts
-void acq_acc_rlock(){
-	
-	sem_wait(&accounts_lock.lock_rdr);
-	if(accounts_lock.rdr==0){
-		accounts_lock.rdr+=1;
-		sem_wait(&accounts_lock.wlock);
-		
-	}
-	else {accounts_lock.rdr+=1;
-		
-		
-		
-	}
-	
-	sem_post(&accounts_lock.lock_rdr);
-	
-	return;
-	
-
-
-}
-
-
-void acq_acc_wlock(){
-	sem_wait(&accounts_lock.lock_wtr);
-	accounts_lock.wtr+=1;
-	if(accounts_lock.wtr==1){
-		sem_wait(&accounts_lock.wlock);
-		
-	}
-	
-	sem_post(&accounts_lock.lock_wtr);
-	return;
-	
-
-}
-
-
-void rls_acc_rlock(){
-	sem_wait(&accounts_lock.lock_rdr);
-	accounts_lock.rdr-=1;
-	if(accounts_lock.rdr==0){
-		
-		sem_post(&accounts_lock.wlock);
-	}
-	
-	
-	sem_post(&accounts_lock.lock_rdr);
-	
-	return;
-}
-
-void rls_acc_wlock(){
-	
-	sem_wait(&accounts_lock.lock_wtr);
-	accounts_lock.wtr-=1;
-	if(accounts_lock.wtr==0){
-		
-		sem_post(&accounts_lock.wlock);
-	}
-	
-	
-	sem_post(&accounts_lock.lock_wtr);
-	return;
-	
-
-}
 
 void acq_sucs_rlock(){
 	sem_wait(&sucs_rdrlock);
@@ -1059,12 +961,14 @@ void rls_sucs_rlock(){
 	sem_post(&sucs_rdrlock);
 	return;
 }
+
+
 void* suc_thread(void* argumento){ //arg necesita ser un objeto que contenga el acc_h, trans_h,pipeBank[0] 
 	printf("Se ha iniciado un thread concurrente en sucursal\n");
  	
 	args* argumentos=(args*)argumento;
 	int pipe=argumentos->readpipe;
-
+	char msg[80];
 	
 	cuenta* acc_h=argumentos->acc_h;
 	
@@ -1077,26 +981,53 @@ void* suc_thread(void* argumento){ //arg necesita ser un objeto que contenga el 
 	int random;
 	while(true){	
 		
-		usleep(500000);
+		usleep(900000);
 		
 		char cuenta_random[14];  
+		int min=sucId-2;
+		int max=sucId+2;
+	
+		int b=rand()%2;
+		int suc_rand;
+		if(b==0){
+			printf("Adentro\n");
+		 suc_rand=sucId;
+		
+		}
+		else{
 		srand(time(NULL));
-		random=rand()%1500;  // CCC random en int
-		sprintf(cuenta_random, "%03d-%03d-%06d",bankId, sucId,random);
+		printf("---------------afuera---------------\n");
+		suc_rand=rand()%(sucId-2)+(sucId+2);
+		
+		
+		}
+		random=rand()%5000;  // CCC random en int
+		sprintf(cuenta_random, "%03d-%03d-%06d",bankId, suc_rand,random);
 		
 
-		usleep(1000);
+		
 		srand(time(NULL));
-		int transaccion=rand()%3+1;
+		int transaccion=rand()%2+1;
 		int r_trans;
-	
+		
+		usleep(100000);
 		int monto=rand()%500000000+1;
 		
 		if(transaccion==1){	//DEPOSITO
 			
 			r_trans=deposito(monto,cuenta_random,acc_h);
+			if(r_trans==1 && suc_rand!=sucId){ // cuenta invalida, manda solicitud hacia afuera
+				sprintf(msg,"%d;solicitud;deposito;%d;%s;EFECTIVO",sucId,monto,cuenta_random);
+				write(sucPipe[1],msg,strlen(msg)+1);
 			
-			push_trans('d','e',"EFECTIVO",cuenta_random,monto,r_trans,trans_h);
+			
+			}
+			else{
+			
+				push_trans('d','e',"EFECTIVO",cuenta_random,monto,r_trans,trans_h);
+			
+			}
+			 		
 			
 				
 			
@@ -1106,9 +1037,18 @@ void* suc_thread(void* argumento){ //arg necesita ser un objeto que contenga el 
 			
 			r_trans=retiro(100000,cuenta_random,acc_h);
 			
-			push_trans('r','e',cuenta_random,"EFECTIVO",monto,r_trans,trans_h);
+			if(r_trans==1){ // cuenta invalida, manda solicitud hacia afuera
+				sprintf(msg,"%d;solicitud;retiro;%d;%s;EFECTIVO",sucId,monto,cuenta_random);
+				write(sucPipe[1],msg,strlen(msg)+1);
+			
+			
 			}
-
+			else{
+			
+				push_trans('d','e',"EFECTIVO",cuenta_random,monto,r_trans,trans_h);
+			
+			}
+		}	
 
 		else{		        	//TRANSFERENCIA
 			
@@ -1138,6 +1078,174 @@ void* suc_thread(void* argumento){ //arg necesita ser un objeto que contenga el 
 	}
 
 }
+
+
+
+
+void* matrix(void* arg){ //args debe ser un struct que contenga suc_h,bankPipe
+
+	
+	int sucPipe=((matrix_arg*)arg)->sucPipe;
+	char readbuffer[80];
+	while(true){
+		int bytes=read(sucPipe,readbuffer,sizeof(readbuffer));
+		if(bytes==-1){
+			fprintf(stderr,"error al leer mensaje desde Pipe: %s\n",strerror(errno));
+			exit(1);
+	
+		}
+	
+		char* msg_array[6];  //"<suc_emisor>;<solicitud/r:0/r:1/r:2>;<retiro/dep>;<monto>;<cuenta_des>;<cuenta_inicial>"
+					// a traves de cuenta_destino se verifica la existencia del banco y de la cuenta en el mismo,
+	
+		char* token;
+		printf("%s\n",readbuffer);
+		char t[2]=";";
+		
+		token=strtok(readbuffer,t);
+		
+		int i=0;
+		while(token!=NULL){
+			
+			
+			
+			msg_array[i]=token;
+			printf("%s\n",msg_array[i]);
+			
+			token=strtok(NULL,t);
+			i+=1;
+	
+		}
+		
+		
+		char t2[]="-";	
+		char s_cuenta[15];
+		strcpy(s_cuenta,msg_array[4]);	
+		int cuenta[3];
+		token=strtok(msg_array[4],t2);
+	        i=0;
+		while(token!=NULL){
+			cuenta[i]=atoi(token);
+			printf("%d\n",cuenta[i]);
+			token=strtok(NULL,t2);
+			i+=1;
+		
+			}
+		
+		acq_sucs_rlock();
+		suc* temp=suc_h;
+		if(!strncmp(msg_array[1],"solicitud",strlen("solicitud")) ){
+			printf("gestionando %s\n",msg_array[2]);
+			
+		
+			while(temp!=NULL){
+				if(temp->id==cuenta[1] && (temp->cuentas)>=cuenta[2]){
+					printf("cuenta valida\n");
+					write(temp->pipe[1],readbuffer,strlen(readbuffer)+1);
+					break;
+		
+					}
+
+				else{
+		
+					temp=temp->next;
+	
+					}
+	
+	
+
+				}
+				
+				
+			if(temp==NULL){
+			
+			
+			
+			 	printf("cuenta invalida\n");
+				temp=suc_h;
+				while(temp!=NULL){
+					
+					if(temp->id==(atoi(msg_array[0])) ){
+						printf("suc encontrada para responder\n");
+						char msg[80];
+						
+						sprintf(msg,"%s;r:1;%s;%s;%s;%s",msg_array[0],msg_array[2],msg_array[3],s_cuenta,msg_array[5]);
+						printf("respondiendo: %s\n",msg);
+						usleep(100000);
+						write(temp->pipe[1],msg,strlen(msg)+1);
+						break;
+						}
+						
+					else{
+						temp=temp->next;
+					
+						}
+				
+				
+				
+				
+					}
+					
+					
+					
+				}
+	
+	
+			}		
+			
+			
+		
+			
+			
+			
+			
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	
+		
+		
+		
+		
+	
+	}	
+	
+	
+
+	free(arg);
+	return;
+	
+	
+	
+	
+
+}
+
+void push_trans(char tipo, char medio, char origen[14], char destino[14], int monto, int result,trans* header){
+	sem_wait(&sucs_lock);
+	trans* temp=header;
+	while(temp->next!=NULL){
+		
+		temp=temp->next;
+
+		}
+	
+	temp->next=create_trans(tipo,medio,origen,destino,monto, result);
+
+	
+	sem_post(&sucs_lock);
+
+	}
+	
+	
+	
+	
 
 
 
